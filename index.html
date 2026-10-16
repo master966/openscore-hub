@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OpenScore 허브</title>
+<meta name="description" content="초대받은 사람끼리 악보와 타브를 나누는 OpenScore 허브">
+<meta name="theme-color" content="#f4f1ea" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121211" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="OpenScore">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="topbar" id="topbar">
+  <button class="icon-btn hidden" id="back" aria-label="뒤로">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+  </button>
+  <a class="brand" href="#/">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="var(--accent)"/><path d="M13 22.5V10l9-2v11" stroke="var(--accent-ink)" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10.5" cy="22.5" r="3" fill="var(--accent-ink)"/><circle cx="19.5" cy="19" r="3" fill="var(--accent-ink)"/></svg>
+    OpenScore <small>허브</small>
+  </a>
+  <span class="grow"></span>
+  <a class="btn nav-btn hidden" id="local-link" href="./">내 악보</a>
+  <button class="btn nav-btn hidden" id="user-btn" aria-haspopup="menu"></button>
+  <div class="menu hidden" id="user-menu" role="menu">
+    <a role="menuitem" href="#/?mine=1">내가 올린 악보</a>
+    <a role="menuitem" href="#/invites" id="menu-invites" class="hidden">초대 코드</a>
+    <button role="menuitem" type="button" id="logout">로그아웃</button>
+  </div>
+</header>
+
+<main>
+  <!-- 허브 미설정 -->
+  <section id="v-off" class="hidden">
+    <div class="card card-pad empty"><div class="big">🛠️</div>허브가 아직 설정되지 않았어요.<br><span class="small">web/hub-config.js 에 Supabase 주소와 키를 넣어 주세요.</span></div>
+  </section>
+
+  <!-- 로그인 / 가입 -->
+  <section id="v-auth" class="hidden">
+    <div class="card hero auth">
+      <h1>OpenScore 허브</h1>
+      <p class="lead">초대받은 사람끼리 악보와 타브를 나누는 곳이에요.</p>
+      <div class="seg full" id="auth-tabs">
+        <button type="button" data-t="login" aria-pressed="true">로그인</button>
+        <button type="button" data-t="signup" aria-pressed="false">초대 코드로 가입</button>
+      </div>
+      <form id="auth-form" autocomplete="on">
+        <label class="fld signup-only hidden">초대 코드<input id="a-invite" autocomplete="off" placeholder="OS-XXXX-XXXX-XXXX" maxlength="40"></label>
+        <label class="fld signup-only hidden">이름 (허브에 보이는 이름)<input id="a-name" autocomplete="nickname" maxlength="20" placeholder="2~20자"></label>
+        <label class="fld">이메일<input id="a-email" type="email" autocomplete="email" required></label>
+        <label class="fld">비밀번호<input id="a-pw" type="password" autocomplete="current-password" minlength="6" required></label>
+        <button class="btn primary block" id="a-submit">로그인</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- 피드 -->
+  <section id="v-feed" class="hidden">
+    <div class="feed-head">
+      <div class="field">
+        <svg class="lead-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input type="search" id="q" placeholder="제목, 연주자, 태그로 찾기" enterkeyhint="search" autocomplete="off">
+      </div>
+      <div class="feed-tools">
+        <div class="seg" id="sort-seg">
+          <button type="button" data-s="new" aria-pressed="true">최신</button>
+          <button type="button" data-s="popular" aria-pressed="false">인기</button>
+          <button type="button" data-s="mine" aria-pressed="false">내 악보</button>
+        </div>
+      </div>
+      <div class="chips scroll-chips" id="inst-chips"></div>
+    </div>
+    <p class="muted small" id="feed-count" style="margin:12px 2px 8px"></p>
+    <ul class="jobs" id="feed"></ul>
+    <div style="text-align:center;margin-top:14px"><button class="btn hidden" id="more">더 보기</button></div>
+  </section>
+
+  <!-- 악보 보기 -->
+  <section id="v-score" class="hidden">
+    <div class="job-head">
+      <h1 id="s-title"></h1>
+      <div class="sub" id="s-sub"></div>
+      <div class="metas" id="s-metas"></div>
+      <div class="chips" id="s-tags" style="margin-top:10px"></div>
+      <p class="desc" id="s-desc"></p>
+      <div class="score-actions">
+        <button class="btn like" id="like" aria-pressed="false"></button>
+        <button class="btn" id="copy-link">링크 복사</button>
+        <span class="grow"></span>
+        <button class="btn danger hidden" id="s-delete">삭제</button>
+      </div>
+    </div>
+    <nav class="parts" id="parts" aria-label="악기"></nav>
+    <div class="viewbar">
+      <div class="seg" id="views" aria-label="보기 방식"></div>
+      <div class="zoom" aria-label="악보 크기">
+        <button type="button" id="zoom-out" aria-label="작게">−</button><span id="zoom-val">100%</span><button type="button" id="zoom-in" aria-label="크게">+</button>
+      </div>
+    </div>
+    <div class="sheet">
+      <div class="sheet-loading hidden" id="sheet-loading"><div>악보 그리는 중…</div></div>
+      <div class="sheet-empty hidden" id="sheet-empty">이 파트는 악보 없이 MIDI 만 있어요.</div>
+      <div id="viewer"></div>
+    </div>
+    <p class="note-line" id="part-note"></p>
+    <div class="section-title"><h2>내려받기</h2></div>
+    <div class="card card-pad">
+      <div class="muted small" id="exports-part-title" style="margin-bottom:8px;font-weight:600"></div>
+      <div class="exports" id="exports-part"></div>
+      <div class="muted small" style="margin:16px 0 8px;font-weight:600">곡 전체</div>
+      <div class="exports" id="exports-whole"></div>
+    </div>
+  </section>
+
+  <!-- 초대 코드 (관리자) -->
+  <section id="v-invites" class="hidden">
+    <div class="card card-pad">
+      <h2 style="margin:0 0 4px;font-size:18px">초대 코드</h2>
+      <p class="muted small" style="margin:0 0 14px">코드를 친구에게 보내면 허브에 가입할 수 있어요. 한 코드로 여러 명이 가입할 수 있어요.</p>
+      <div class="manage">
+        <label class="fld inline">몇 명<select id="inv-uses"><option>1</option><option selected>5</option><option>10</option><option>30</option></select></label>
+        <label class="fld inline">유효 기간<select id="inv-days"><option value="7">7일</option><option value="30" selected>30일</option><option value="365">1년</option></select></label>
+        <button class="btn primary" id="inv-create">코드 만들기</button>
+      </div>
+      <ul class="invites" id="inv-list"></ul>
+    </div>
+  </section>
+</main>
+
+<!-- 하단 플레이어 (viewer.js) -->
+<div class="player hidden" id="player">
+  <div class="player-inner">
+    <button class="play" id="play" aria-label="재생" disabled><svg viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="currentColor"/></svg></button>
+    <div class="timeline">
+      <div class="top"><b id="player-title"></b><span id="time">0:00 / 0:00</span></div>
+      <div class="bar" id="bar" role="slider" aria-label="재생 위치"><div class="fill" id="bar-fill"></div><div class="knob" id="bar-knob"></div></div>
+    </div>
+    <div class="tools">
+      <label class="tool" title="재생 속도"><span id="speed-val">100%</span>
+        <select id="speed" aria-label="재생 속도">
+          <option value="0.5">50%</option><option value="0.6">60%</option><option value="0.7">70%</option><option value="0.8">80%</option>
+          <option value="0.9">90%</option><option value="1">100%</option><option value="1.1">110%</option><option value="1.25">125%</option>
+        </select>
+      </label>
+      <button class="tool" id="metro" aria-pressed="false" title="메트로놈"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6l4 18H5z"/><path d="M12 16l5-9"/><path d="M8 16h8"/></svg><span class="sr-only">메트로놈</span></button>
+      <button class="tool" id="loop" aria-pressed="false" title="반복 재생"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg><span class="sr-only">반복 재생</span></button>
+      <button class="tool" id="rewind" title="처음으로"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 19l-9-7 9-7v14z"/><path d="M22 19l-9-7 9-7v14z"/></svg><span class="sr-only">처음으로</span></button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="hub.js"></script>
+</body>
+</html>
