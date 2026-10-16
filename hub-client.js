@@ -29,6 +29,11 @@ function koError(e) {
   if (/mime type|invalid_mime/i.test(m)) return '허브가 받지 않는 파일 형식이에요. (악보·PDF·MIDI 만 올릴 수 있어요)';
   if (/exceeded the maximum allowed size|Payload too large/i.test(m)) return '파일이 너무 커요 (한 파일 20MB 까지).';
   if (/row-level security|Unauthorized|403/i.test(m)) return '권한이 없어요. 허브에 다시 로그인해 주세요.';
+  if (/only_admin/i.test(m)) return '관리자만 할 수 있어요.';
+  if (/cannot_ban_self/i.test(m)) return '자기 자신은 정지할 수 없어요.';
+  if (/profiles_username_key|duplicate key.*username/i.test(m)) return '이미 쓰는 이름이에요. 다른 이름을 골라 주세요.';
+  if (/profiles_username_check/i.test(m)) return '이름은 2~20자 한글·영문·숫자·_.- 만 쓸 수 있어요.';
+  if (/reports_score_id_reporter_id_key/i.test(m)) return '이미 신고한 악보예요.';
   if (/Failed to fetch|NetworkError/i.test(m)) return '허브 서버에 연결할 수 없어요.';
   return m;
 }
@@ -43,7 +48,7 @@ export async function me(force = false) {
   const c = await client();
   const { data: { session } } = await c.auth.getSession();
   if (!session) return (meCache = null);
-  const profile = check(await c.from('profiles').select('id, username, role').eq('id', session.user.id).maybeSingle());
+  const profile = check(await c.from('profiles').select('id, username, role, banned_at').eq('id', session.user.id).maybeSingle());
   return (meCache = { user: session.user, profile });
 }
 export async function signIn(email, password) {
@@ -68,18 +73,35 @@ export async function signOut() {
   await c.auth.signOut();
   meCache = null;
 }
+export async function rename(username) {
+  username = username.trim();
+  if (!USERNAME_RE.test(username)) throw new Error('이름은 2~20자 한글·영문·숫자·_.- 만 쓸 수 있어요.');
+  const c = await client();
+  const m = await me();
+  if (username.toLowerCase() !== m.profile.username.toLowerCase() && !check(await c.rpc('username_available', { name: username }))) {
+    throw new Error('이미 쓰는 이름이에요. 다른 이름을 골라 주세요.');
+  }
+  check(await c.from('profiles').update({ username }).eq('id', m.user.id));
+  return me(true);
+}
+export async function profileByName(username) {
+  const c = await client();
+  return check(await c.from('profiles').select('id, username, role, created_at').eq('username', username).maybeSingle());
+}
 
 // ---------- 악보 목록·보기 ----------
-const LIST_COLS = 'id, title, artist, tags, instruments, key, bpm, time_signature, like_count, created_at, owner_id, owner:profiles!scores_owner_id_fkey(username)';
+const LIST_COLS = 'id, title, artist, tags, instruments, key, bpm, time_signature, like_count, hidden, created_at, owner_id, owner:profiles!scores_owner_id_fkey(username)';
 
-/** {q, instrument, sort: 'new'|'popular', mine, page} → {rows, total} */
-export async function listScores({ q = '', instrument = '', sort = 'new', mine = false, page = 0, size = 20 } = {}) {
+/** {q, instrument, sort: 'new'|'popular', ownerId, liked, page} → {rows, total} */
+export async function listScores({ q = '', instrument = '', sort = 'new', ownerId = '', liked = false, page = 0, size = 20 } = {}) {
   const c = await client();
-  let query = c.from('scores').select(LIST_COLS, { count: 'exact' });
+  // 좋아요한 악보: likes 를 inner join 해서 내 좋아요만 남긴다
+  let query = c.from('scores').select(liked ? `${LIST_COLS}, likes!inner(user_id)` : LIST_COLS, { count: 'exact' });
+  if (liked) query = query.eq('likes.user_id', (await me())?.user.id);
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
   for (const w of words) query = query.ilike('search', `%${w.replace(/[%_\\]/g, (m) => '\\' + m)}%`);
   if (instrument) query = query.contains('instruments', [instrument]);
-  if (mine) query = query.eq('owner_id', (await me())?.user.id);
+  if (ownerId) query = query.eq('owner_id', ownerId);
   query = sort === 'popular'
     ? query.order('like_count', { ascending: false }).order('created_at', { ascending: false })
     : query.order('created_at', { ascending: false });
@@ -128,6 +150,39 @@ export async function deleteScore(score) {
   if (paths.length) check(await c.storage.from(BUCKET).remove(paths));
   check(await c.from('scores').delete().eq('id', score.id));
 }
+/** 올린 사람이 제목·연주·설명·태그를 고친다 */
+export async function updateScore(id, { title, artist, description, tags }) {
+  const c = await client();
+  check(await c.from('scores').update({ title, artist: artist || null, description: description || null, tags }).eq('id', id));
+}
+export async function report(scoreId, reason) {
+  const c = await client();
+  check(await c.from('reports').insert({ score_id: scoreId, reporter_id: (await me()).user.id, reason }));
+}
+
+// ---------- 관리자 ----------
+export async function adminMembers() {
+  return check(await (await client()).rpc('admin_members'));
+}
+export async function setBan(userId, banned) {
+  check(await (await client()).rpc('admin_set_ban', { target: userId, banned }));
+}
+export async function setHidden(scoreId, hide) {
+  check(await (await client()).rpc('admin_set_hidden', { target: scoreId, hide }));
+}
+export async function revokeInvite(code) {
+  check(await (await client()).rpc('revoke_invite', { invite_code: code }));
+}
+export async function openReports() {
+  const c = await client();
+  return check(await c.from('reports')
+    .select('id, reason, created_at, score:scores!reports_score_id_fkey(id, title, hidden), reporter:profiles!reports_reporter_id_fkey(username)')
+    .is('resolved_at', null).order('created_at', { ascending: false }).limit(50));
+}
+export async function resolveReport(id) {
+  check(await (await client()).rpc('resolve_report', { report_id: id }));
+}
+
 export async function createInvite(maxUses = 5, days = 30) {
   const c = await client();
   return check(await c.rpc('create_invite', { max_uses: maxUses, valid_days: days }));

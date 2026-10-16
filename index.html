@@ -31,7 +31,9 @@
   <button class="btn nav-btn hidden" id="user-btn" aria-haspopup="menu"></button>
   <div class="menu hidden" id="user-menu" role="menu">
     <a role="menuitem" href="#/?mine=1">내가 올린 악보</a>
-    <a role="menuitem" href="#/invites" id="menu-invites" class="hidden">초대 코드</a>
+    <a role="menuitem" href="#/?liked=1">좋아요한 악보</a>
+    <button role="menuitem" type="button" id="menu-rename">내 이름 바꾸기</button>
+    <a role="menuitem" href="#/admin" id="menu-admin" class="hidden">관리 (회원·신고·초대 코드)</a>
     <button role="menuitem" type="button" id="logout">로그아웃</button>
   </div>
 </header>
@@ -40,6 +42,12 @@
   <!-- 허브 미설정 -->
   <section id="v-off" class="hidden">
     <div class="card card-pad empty"><div class="big">🛠️</div>허브가 아직 설정되지 않았어요.<br><span class="small">web/hub-config.js 에 Supabase 주소와 키를 넣어 주세요.</span></div>
+  </section>
+
+  <!-- 정지된 계정 -->
+  <section id="v-banned" class="hidden">
+    <div class="card card-pad empty"><div class="big">⛔</div>이용이 정지된 계정이에요.<br><span class="small">허브 관리자에게 문의해 주세요.</span>
+      <div style="margin-top:14px"><button class="btn" id="banned-logout">로그아웃</button></div></div>
   </section>
 
   <!-- 로그인 / 가입 -->
@@ -72,6 +80,7 @@
         <div class="seg" id="sort-seg">
           <button type="button" data-s="new" aria-pressed="true">최신</button>
           <button type="button" data-s="popular" aria-pressed="false">인기</button>
+          <button type="button" data-s="liked" aria-pressed="false">좋아요</button>
           <button type="button" data-s="mine" aria-pressed="false">내 악보</button>
         </div>
       </div>
@@ -85,6 +94,7 @@
   <!-- 악보 보기 -->
   <section id="v-score" class="hidden">
     <div class="job-head">
+      <p class="banner hidden" id="s-hidden">🙈 숨긴 악보예요. 올린 사람과 관리자에게만 보여요.</p>
       <h1 id="s-title"></h1>
       <div class="sub" id="s-sub"></div>
       <div class="metas" id="s-metas"></div>
@@ -94,6 +104,9 @@
         <button class="btn like" id="like" aria-pressed="false"></button>
         <button class="btn" id="copy-link">링크 복사</button>
         <span class="grow"></span>
+        <button class="btn hidden" id="s-edit">수정</button>
+        <button class="btn hidden" id="s-report">신고</button>
+        <button class="btn hidden" id="s-hide"></button>
         <button class="btn danger hidden" id="s-delete">삭제</button>
       </div>
     </div>
@@ -119,9 +132,19 @@
     </div>
   </section>
 
-  <!-- 초대 코드 (관리자) -->
-  <section id="v-invites" class="hidden">
+  <!-- 관리 (관리자): 신고 · 회원 · 초대 코드 -->
+  <section id="v-admin" class="hidden">
     <div class="card card-pad">
+      <h2 style="margin:0 0 4px;font-size:18px">신고</h2>
+      <p class="muted small" style="margin:0 0 10px">회원이 신고한 악보예요. 숨기면 올린 사람과 관리자만 볼 수 있어요.</p>
+      <ul class="admin-list" id="rep-list"></ul>
+    </div>
+    <div class="card card-pad" style="margin-top:14px">
+      <h2 style="margin:0 0 4px;font-size:18px">회원</h2>
+      <p class="muted small" style="margin:0 0 10px">정지하면 그 회원은 허브를 볼 수도, 올릴 수도 없어요. 언제든 풀 수 있어요.</p>
+      <ul class="admin-list" id="mem-list"></ul>
+    </div>
+    <div class="card card-pad" style="margin-top:14px">
       <h2 style="margin:0 0 4px;font-size:18px">초대 코드</h2>
       <p class="muted small" style="margin:0 0 14px">코드를 친구에게 보내면 허브에 가입할 수 있어요. 한 코드로 여러 명이 가입할 수 있어요.</p>
       <div class="manage">
@@ -157,6 +180,44 @@
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="edit-dialog" class="form-dialog">
+  <form id="edit-form">
+    <h3>악보 정보 수정</h3>
+    <label class="fld">제목<input id="e-title" required maxlength="200"></label>
+    <label class="fld">연주·작곡<input id="e-artist" maxlength="200"></label>
+    <label class="fld">설명<textarea id="e-desc" maxlength="2000" rows="4"></textarea></label>
+    <label class="fld">태그<input id="e-tags" maxlength="200" placeholder="쉼표로 구분"></label>
+    <div class="row"><button type="button" class="btn" data-close>취소</button><button class="btn primary">저장</button></div>
+  </form>
+</dialog>
+
+<dialog id="report-dialog" class="form-dialog">
+  <form id="report-form">
+    <h3>악보 신고</h3>
+    <p class="muted small">관리자에게만 보여요. 누가 신고했는지는 올린 사람에게 알려지지 않아요.</p>
+    <div class="fld">이유
+      <div class="chips" id="r-reasons">
+        <label class="chip-check"><input type="radio" name="r-reason" value="저작권 침해" checked><span>저작권 침해</span></label>
+        <label class="chip-check"><input type="radio" name="r-reason" value="잘못된 악보"><span>잘못된 악보</span></label>
+        <label class="chip-check"><input type="radio" name="r-reason" value="부적절한 내용"><span>부적절한 내용</span></label>
+        <label class="chip-check"><input type="radio" name="r-reason" value="기타"><span>기타</span></label>
+      </div>
+    </div>
+    <label class="fld">자세히 (선택)<textarea id="r-detail" maxlength="400" rows="3"></textarea></label>
+    <div class="row"><button type="button" class="btn" data-close>취소</button><button class="btn primary">신고하기</button></div>
+  </form>
+</dialog>
+
+<dialog id="rename-dialog" class="form-dialog">
+  <form id="rename-form">
+    <h3>내 이름 바꾸기</h3>
+    <p class="muted small">허브에서 다른 사람에게 보이는 이름이에요. 2~20자 한글·영문·숫자·_.-</p>
+    <label class="fld">새 이름<input id="n-name" required maxlength="20" autocomplete="nickname"></label>
+    <div class="row"><button type="button" class="btn" data-close>취소</button><button class="btn primary">바꾸기</button></div>
+  </form>
+</dialog>
+
 <script type="module" src="hub.js"></script>
 </body>
 </html>
